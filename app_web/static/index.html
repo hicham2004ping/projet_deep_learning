@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reconnaissance des émotions</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 16px; color: #222; }
+    h1 { font-size: 24px; }
+    .onglets { display: flex; gap: 8px; margin-bottom: 16px; }
+    .onglets button { background: #e4e4e7; color: #222; margin: 0; }
+    .onglets button.actif { background: #2563eb; color: white; }
+    .zone { border: 2px dashed #aaa; border-radius: 10px; padding: 24px; text-align: center; }
+    button { margin-top: 12px; padding: 10px 20px; font-size: 16px; border: none; border-radius: 6px;
+             background: #2563eb; color: white; cursor: pointer; }
+    button:disabled { background: #999; cursor: default; }
+    button.rouge { background: #dc2626; }
+    img, canvas { max-width: 100%; margin-top: 16px; border-radius: 8px; }
+    .visage { margin-top: 20px; padding: 16px; background: #f4f4f5; border-radius: 8px; }
+    .principal { font-size: 22px; font-weight: bold; }
+    .ligne { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 14px; }
+    .ligne span:first-child { width: 80px; }
+    .ligne span:last-child { width: 56px; text-align: right; }
+    .barre { flex: 1; height: 12px; background: #ddd; border-radius: 6px; overflow: hidden; }
+    .barre div { height: 100%; background: #2563eb; transition: width 0.2s; }
+    .erreur { color: #b91c1c; margin-top: 12px; }
+    .mesures { font-size: 14px; color: #555; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Reconnaissance automatique des émotions faciales</h1>
+
+  <div class="onglets">
+    <button id="ongletImage" class="actif">Importer une image</button>
+    <button id="ongletCamera">Caméra en temps réel</button>
+  </div>
+
+  <!-- ================= Mode 1 : importer une image ================= -->
+  <section id="modeImage">
+    <div class="zone">
+      <input type="file" id="fichier" accept="image/*">
+      <br>
+      <button id="bouton" disabled>Analyser l'image</button>
+      <div id="erreur" class="erreur"></div>
+    </div>
+    <img id="apercu" alt="" hidden>
+    <div id="resultats"></div>
+  </section>
+
+  <!-- ================= Mode 2 : caméra en temps réel ================= -->
+  <section id="modeCamera" hidden>
+    <div class="zone">
+      <button id="demarrer">Démarrer la caméra</button>
+      <button id="arreter" class="rouge" hidden>Arrêter</button>
+      <div id="erreurCamera" class="erreur"></div>
+      <div id="mesures" class="mesures"></div>
+    </div>
+    <!-- La vidéo est cachée : on la redessine dans le canvas avec les cadres par-dessus -->
+    <video id="video" autoplay playsinline muted hidden></video>
+    <canvas id="affichage"></canvas>
+    <div id="resultatsCamera"></div>
+  </section>
+
+  <script>
+    // ======================================================================
+    // Onglets
+    // ======================================================================
+    const ongletImage = document.getElementById("ongletImage");
+    const ongletCamera = document.getElementById("ongletCamera");
+    const modeImage = document.getElementById("modeImage");
+    const modeCamera = document.getElementById("modeCamera");
+
+    ongletImage.addEventListener("click", () => {
+      ongletImage.classList.add("actif"); ongletCamera.classList.remove("actif");
+      modeImage.hidden = false; modeCamera.hidden = true;
+      arreterCamera();
+    });
+    ongletCamera.addEventListener("click", () => {
+      ongletCamera.classList.add("actif"); ongletImage.classList.remove("actif");
+      modeCamera.hidden = false; modeImage.hidden = true;
+    });
+
+    // Barres de pourcentage pour une émotion (utilisé par les deux modes)
+    function htmlBarres(probabilites) {
+      let html = "";
+      for (const [nom, p] of Object.entries(probabilites)) {
+        html += `<div class="ligne"><span>${nom}</span>
+                   <div class="barre"><div style="width:${p}%"></div></div>
+                   <span>${p.toFixed(1)} %</span></div>`;
+      }
+      return html;
+    }
+
+    // ======================================================================
+    // Mode 1 : importer une image
+    // ======================================================================
+    const fichier = document.getElementById("fichier");
+    const bouton = document.getElementById("bouton");
+    const apercu = document.getElementById("apercu");
+    const zoneResultats = document.getElementById("resultats");
+    const zoneErreur = document.getElementById("erreur");
+
+    fichier.addEventListener("change", () => {
+      const f = fichier.files[0];
+      zoneResultats.innerHTML = "";
+      zoneErreur.textContent = "";
+      if (!f) { bouton.disabled = true; apercu.hidden = true; return; }
+      apercu.src = URL.createObjectURL(f);
+      apercu.hidden = false;
+      bouton.disabled = false;
+    });
+
+    bouton.addEventListener("click", async () => {
+      const donnees = new FormData();
+      donnees.append("image", fichier.files[0]);
+      bouton.disabled = true;
+      bouton.textContent = "Analyse en cours...";
+      zoneErreur.textContent = "";
+      try {
+        const reponse = await fetch("/predict", { method: "POST", body: donnees });
+        const json = await reponse.json();
+        if (!reponse.ok) throw new Error(json.erreur || "Erreur du serveur");
+        afficherImage(json);
+      } catch (e) {
+        zoneErreur.textContent = e.message;
+      } finally {
+        bouton.disabled = false;
+        bouton.textContent = "Analyser l'image";
+      }
+    });
+
+    function afficherImage(json) {
+      apercu.src = json.image + "?t=" + Date.now();
+      zoneResultats.innerHTML = "";
+      json.resultats.forEach((r, i) => {
+        const titre = json.nb_visages > 1 ? `Visage ${i + 1} : ` : "";
+        zoneResultats.insertAdjacentHTML("beforeend",
+          `<div class="visage"><div class="principal">${titre}${r.emotion} (${r.confiance} %)</div>
+           ${htmlBarres(r.probabilites)}</div>`);
+      });
+      if (json.nb_visages === 0) {
+        zoneResultats.insertAdjacentHTML("afterbegin",
+          "<p><i>Aucun visage détecté : l'image entière a été analysée comme un visage.</i></p>");
+      }
+    }
+
+    // ======================================================================
+    // Mode 2 : caméra en temps réel
+    // ======================================================================
+    // Principe :
+    //  - la webcam est affichée en continu dans le canvas (fluide, ~30 images/s) ;
+    //  - en parallèle, on envoie une image au serveur, on attend la réponse,
+    //    puis on envoie la suivante (jamais deux à la fois) ;
+    //  - les cadres et émotions de la dernière réponse sont dessinés par-dessus la vidéo.
+    const video = document.getElementById("video");
+    const affichage = document.getElementById("affichage");
+    const ctx = affichage.getContext("2d");
+    const btnDemarrer = document.getElementById("demarrer");
+    const btnArreter = document.getElementById("arreter");
+    const erreurCamera = document.getElementById("erreurCamera");
+    const mesures = document.getElementById("mesures");
+    const resultatsCamera = document.getElementById("resultatsCamera");
+
+    const LARGEUR_ENVOI = 480;   // image réduite envoyée au serveur (plus rapide)
+    const LISSAGE = 0.4;         // 0 = très lisse mais lent à réagir, 1 = pas de lissage
+
+    let flux = null;             // le flux de la webcam
+    let enMarche = false;
+    let derniersVisages = [];    // dernière réponse du serveur
+    let echelle = 1;             // rapport taille vidéo / taille image envoyée
+    let probasLissees = [];      // moyenne glissante des probabilités, par visage
+    const capture = document.createElement("canvas");   // canvas invisible pour l'envoi
+
+    btnDemarrer.addEventListener("click", demarrerCamera);
+    btnArreter.addEventListener("click", arreterCamera);
+
+    async function demarrerCamera() {
+      erreurCamera.textContent = "";
+      try {
+        flux = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+      } catch (e) {
+        erreurCamera.textContent = "Impossible d'accéder à la caméra : " + e.message;
+        return;
+      }
+      video.srcObject = flux;
+      await video.play();
+
+      affichage.width = video.videoWidth;
+      affichage.height = video.videoHeight;
+      echelle = video.videoWidth / LARGEUR_ENVOI;
+      capture.width = LARGEUR_ENVOI;
+      capture.height = Math.round(video.videoHeight / echelle);
+
+      enMarche = true;
+      derniersVisages = [];
+      probasLissees = [];
+      btnDemarrer.hidden = true;
+      btnArreter.hidden = false;
+
+      requestAnimationFrame(dessiner);   // boucle d'affichage
+      boucleAnalyse();                   // boucle d'envoi au serveur
+    }
+
+    function arreterCamera() {
+      enMarche = false;
+      if (flux) flux.getTracks().forEach(t => t.stop());
+      flux = null;
+      btnDemarrer.hidden = false;
+      btnArreter.hidden = true;
+      mesures.textContent = "";
+    }
+
+    // --- Boucle 1 : envoyer des images au serveur, une à la fois ---
+    async function boucleAnalyse() {
+      let compteur = 0;
+      let debutSeconde = performance.now();
+
+      while (enMarche) {
+        capture.getContext("2d").drawImage(video, 0, 0, capture.width, capture.height);
+        const blob = await new Promise(ok => capture.toBlob(ok, "image/jpeg", 0.8));
+        const donnees = new FormData();
+        donnees.append("frame", blob, "frame.jpg");
+
+        const t0 = performance.now();
+        try {
+          const reponse = await fetch("/predict_frame", { method: "POST", body: donnees });
+          const json = await reponse.json();
+          if (!reponse.ok) throw new Error(json.erreur || "Erreur du serveur");
+          mettreAJour(json.visages);
+        } catch (e) {
+          erreurCamera.textContent = e.message;
+          await new Promise(ok => setTimeout(ok, 1000));   // on réessaie dans 1 s
+          continue;
+        }
+        const latence = performance.now() - t0;
+
+        // Mesures temps réel (demandées dans le sujet : FPS et latence)
+        compteur++;
+        const ecoule = performance.now() - debutSeconde;
+        if (ecoule >= 1000) {
+          mesures.textContent =
+            `Analyses par seconde : ${(compteur * 1000 / ecoule).toFixed(1)} · Latence : ${latence.toFixed(0)} ms`;
+          compteur = 0;
+          debutSeconde = performance.now();
+        }
+      }
+    }
+
+    // Lissage : on mélange la nouvelle prédiction avec les précédentes,
+    // pour que l'émotion affichée ne "clignote" pas d'une image à l'autre.
+    function mettreAJour(visages) {
+      // Les visages sont triés de gauche à droite pour garder le même numéro d'une image à l'autre
+      visages.sort((a, b) => a.cadre[0] - b.cadre[0]);
+      if (visages.length !== probasLissees.length) probasLissees = visages.map(() => null);
+
+      derniersVisages = visages.map((v, i) => {
+        const ancien = probasLissees[i];
+        const nouveau = {};
+        for (const [nom, p] of Object.entries(v.probabilites)) {
+          nouveau[nom] = ancien ? LISSAGE * p + (1 - LISSAGE) * ancien[nom] : p;
+        }
+        probasLissees[i] = nouveau;
+        const [emotion, confiance] = Object.entries(nouveau).sort((a, b) => b[1] - a[1])[0];
+        return { cadre: v.cadre, emotion, confiance, probabilites: nouveau };
+      });
+
+      resultatsCamera.innerHTML = derniersVisages.length === 0
+        ? "<p><i>Aucun visage détecté. Place-toi face à la caméra, bien éclairé.</i></p>"
+        : derniersVisages.map((v, i) =>
+            `<div class="visage"><div class="principal">${derniersVisages.length > 1 ? `Visage ${i + 1} : ` : ""}
+             ${v.emotion} (${v.confiance.toFixed(0)} %)</div>${htmlBarres(v.probabilites)}</div>`).join("");
+    }
+
+    // --- Boucle 2 : afficher la vidéo et les cadres (≈ 30 fois par seconde) ---
+    function dessiner() {
+      if (!enMarche) return;
+      const W = affichage.width;
+
+      // Vidéo en miroir, comme quand on se regarde dans une glace
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, -W, 0, W, affichage.height);
+      ctx.restore();
+
+      ctx.lineWidth = 3;
+      ctx.font = "bold 20px Arial";
+      for (const v of derniersVisages) {
+        // Coordonnées renvoyées par le serveur → taille de l'affichage, puis effet miroir
+        const [x, y, w, h] = v.cadre.map(n => n * echelle);
+        const xMiroir = W - x - w;
+        ctx.strokeStyle = "#22c55e";
+        ctx.strokeRect(xMiroir, y, w, h);
+
+        const texte = `${v.emotion} ${v.confiance.toFixed(0)}%`;
+        const largeurTexte = ctx.measureText(texte).width;
+        const yTexte = Math.max(y - 8, 22);
+        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        ctx.fillRect(xMiroir, yTexte - 20, largeurTexte + 10, 26);
+        ctx.fillStyle = "#22c55e";
+        ctx.fillText(texte, xMiroir + 5, yTexte);
+      }
+      requestAnimationFrame(dessiner);
+    }
+  </script>
+</body>
+</html>

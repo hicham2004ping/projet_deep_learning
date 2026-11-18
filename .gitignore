@@ -1,0 +1,21 @@
+# ---------- Environnement Python ----------
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# ---------- PyCharm ----------
+.idea/
+
+# ---------- Données (trop lourdes, à télécharger depuis Kaggle) ----------
+train/
+test/
+*.zip
+
+# ---------- Images envoyées sur l'application web ----------
+app_web/uploads/
+
+# ---------- Système ----------
+.DS_Store
+Thumbs.db
+desktop.ini
