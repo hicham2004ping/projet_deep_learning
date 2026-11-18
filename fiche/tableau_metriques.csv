@@ -1,0 +1,12 @@
+﻿Émotion;Précision (%);Rappel (%);F1-score (%);Images
+Colère;38.5;31.9;34.9;958
+Dégoût;38.9;12.6;19.0;111
+Peur;44.9;8.6;14.4;1024
+Joie;60.0;69.6;64.4;1774
+Neutre;42.0;48.4;45.0;1233
+Tristesse;35.6;49.7;41.5;1247
+Surprise;60.7;67.7;64.0;831
+Moyenne macro;45.8;41.2;40.5;7178
+
+Loss (test);1.3985
+Accuracy (test) (%);47.67

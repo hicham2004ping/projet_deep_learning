@@ -1,0 +1,26 @@
+Loss (test)     : 1.3985
+Accuracy (test) : 47.67 %
+
+              precision    recall  f1-score   support
+
+      Colère      0.385     0.319     0.349       958
+      Dégoût      0.389     0.126     0.190       111
+        Peur      0.449     0.086     0.144      1024
+        Joie      0.600     0.696     0.644      1774
+      Neutre      0.420     0.484     0.450      1233
+   Tristesse      0.356     0.497     0.415      1247
+    Surprise      0.607     0.677     0.640       831
+
+    accuracy                          0.477      7178
+   macro avg      0.458     0.412     0.405      7178
+weighted avg      0.474     0.477     0.453      7178
+
+Matrice de confusion (lignes = vraie émotion, colonnes = prédiction) :
+['Colère', 'Dégoût', 'Peur', 'Joie', 'Neutre', 'Tristesse', 'Surprise']
+[[ 306    6   23  176  144  246   57]
+ [  31   14    1   22    9   29    5]
+ [ 118    4   88  157  160  337  160]
+ [  83    4   18 1234  186  203   46]
+ [  85    4   19  221  597  251   56]
+ [ 137    3   24  185  237  620   41]
+ [  34    1   23   63   90   57  563]]
